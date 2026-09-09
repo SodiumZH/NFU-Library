@@ -35,8 +35,9 @@ public class NFURegistryEntryCollection<T>
      * Register an object to the collection.
      * This is the same as {@code put}, but returns the input value itself
      * so that you can assign the value to a static field together with registering.
+     * <p>Synchronized: serializes with {@link #merge()}/{@link #mergeIfAbsent()} on the shared table.
      */
-    public <U extends T> NFURegistry.Accessor<U> register(@Nonnull String key, @Nonnull Supplier<U> value)
+    public synchronized <U extends T> NFURegistry.Accessor<U> register(@Nonnull String key, @Nonnull Supplier<U> value)
     {
         NFURegistry.Entry<U> entry = new NFURegistry.Entry<>(registry, value, new ResourceLocation(namespace, key));
         NFURegistry.Accessor<U> accessor = NFURegistry.Accessor.createInvalid(entry);
@@ -49,12 +50,25 @@ public class NFURegistryEntryCollection<T>
         return this.table.containsKey(key);
     }
 
-    public void merge()
+    public synchronized void merge()
     {
         this.table.forEach((key, value) -> {
             this.registry.registerRaw(key, value.getA());
             value.getB().validate();
         });
     }
-}
 
+    /**
+     * Merge each entry to the registry if it's not present in the registry.
+     * <p>WARNING: Before calling this, ensure <b>{@link NFURegistry.Accessor}s produced from
+     * {@link NFURegistryEntryCollection#register} are NOT assigned to static fields</b>! If an entry is present,
+     * the accessor will not be linked to the registry and thus invalid. This could produce issues hard to debug.
+     */
+    public synchronized void mergeIfAbsent() {
+        this.table.forEach((key, value) -> {
+            if (this.registry.containsKey(key)) return;
+            this.registry.registerRaw(key, value.getA());
+            value.getB().validate();
+        });
+    }
+}
